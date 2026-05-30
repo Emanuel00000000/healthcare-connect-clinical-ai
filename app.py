@@ -1,4 +1,5 @@
-
+from pydantic import BaseModel
+import base64
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import tensorflow as tf
@@ -63,4 +64,52 @@ async def predict(file: UploadFile = File(...)):
         "malignant_probability": round(float(probs[2]), 4),
         "risk_level": risk,
         "recommendation": recommendation
+    }
+
+class Base64ImageRequest(BaseModel):
+    image: str
+
+
+@app.post("/predict_base64")
+async def predict_base64(request: Base64ImageRequest):
+    image_bytes = base64.b64decode(request.image)
+
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = img.resize((226, 226))
+
+    arr = tf.keras.utils.img_to_array(img)
+    arr = np.expand_dims(arr, axis=0)
+    arr = preprocess_input(arr)
+
+    probs = model.predict(arr)[0]
+    pred_idx = int(np.argmax(probs))
+
+    malignant_prob = float(probs[2])
+
+    if malignant_prob >= MALIGNANT_THRESHOLD:
+        risk = "High"
+        recommendation = "Specialist review required"
+        triage = "Urgent"
+        specialist = "Oncology"
+    elif pred_idx == 1:
+        risk = "Medium"
+        recommendation = "Medical follow-up recommended"
+        triage = "Priority Follow-up"
+        specialist = "Pulmonology"
+    else:
+        risk = "Low"
+        recommendation = "No urgent escalation suggested"
+        triage = "Routine"
+        specialist = "General Medicine"
+
+    return {
+        "prediction": class_names[pred_idx],
+        "confidence": round(float(probs[pred_idx]), 4),
+        "normal_probability": round(float(probs[0]), 4),
+        "benign_probability": round(float(probs[1]), 4),
+        "malignant_probability": round(float(probs[2]), 4),
+        "risk_level": risk,
+        "recommendation": recommendation,
+        "triage": triage,
+        "recommended_specialist": specialist
     }
